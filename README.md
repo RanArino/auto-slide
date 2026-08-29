@@ -143,6 +143,19 @@ autoslide render  "out/$NAME/plan.json"    # 動画化
 
 `plan.json` を編集すると承認は自動で外れる。もう一度 `approve` してから `render` する。
 
+### 4.5 再生成時のファイルの残し方
+
+`autoslide render` は既定で `out.mp4` を**上書き**する。前のバージョンも残したい場合は
+`--out` で別名を指定する。
+
+| パターン | コマンド例 | 使う場面 |
+|---|---|---|
+| **A. 上書き**(既定) | `autoslide render "out/$NAME/plan.json"` | 微調整の試行錯誤中。前バージョンを残す必要がない |
+| **B. 別ファイルで保存** | `autoslide render "out/$NAME/plan.json" --out "out/$NAME/out_v2.mp4"` | 前後を比較したい／複数案を残して選びたい／納品後の差し替え |
+
+パターン B を使うときは `out_v2.mp4`, `out_v3.mp4` ... と連番にする。
+字幕ファイルは指定した mp4 と同じ幹名(例: `out_v2.srt`)で出力される。
+
 ### 5. 困ったとき
 
 | 症状 | 対処（コピペ） |
