@@ -79,6 +79,13 @@ autoslide plan  "<folder>" --out out/<name> --selection out/<name>/selection.jso
      「中央バー字幕にする」→ `config.caption_style` を `"bar"`
 4. 直したら再度 `autoslide summary out/<name>/plan.json` を実行して**更新後の要約を提示**する。
 5. これを納得いくまで繰り返す。**勝手に承認・生成しない。**
+6. 1往復で済ませず、次の観点を能動的に確認する:
+   - **章ごと**: 区切り文言・キャプションのトーン(硬い⇔柔らかい)は合っているか
+   - **全体構成**: 枚数配分の偏り、始まり方・終わり方の印象
+   - **見た目**: letterbox の有無、fit の方式、字幕スタイル(lower-left / bar)
+   - **音**: BGM のムード・音量感の希望
+   - **補正**: 色/露出補正の有無・強さ
+   これらは AskUserQuestion でまとめて選択式に聞き、2〜3往復かけて詰めてから承認に進む。
 
 ### 4. 承認 → 動画化
 
@@ -105,3 +112,5 @@ autoslide render  out/<name>/plan.json --out out/<name>/out.mp4
   再度 `autoslide summary` で確認し、ユーザーの再承認を得てから `render` する。
 - `autoslide run "<folder>" --count N` は既定では `plan` + 要約提示で**停止**する。
   ユーザーが明示的に一括生成を望むときだけ `--yes` を付ける。
+- 一度 `render` した plan.json を**再生成**するときは、既定で `out.mp4` を上書きせず
+  `--out out/<name>/out_v2.mp4` のように連番の別ファイルにする(ユーザーが上書きを明示した時だけ既定名に戻す)。
