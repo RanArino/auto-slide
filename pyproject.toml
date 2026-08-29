@@ -1,0 +1,25 @@
+[project]
+name = "autoslide"
+version = "0.1.0"
+description = "HDD の写真フォルダから自動でスライドショー動画(mp4)を作る"
+requires-python = ">=3.11"
+dependencies = [
+    "pillow>=10.0",
+    "numpy>=1.26",
+]
+
+[project.optional-dependencies]
+heic = ["pillow-heif>=0.16"]
+# タイトル/感情を Claude API で自動生成したいときだけ。
+# 通常は Claude Code が proposal.json を書くので不要。
+llm = ["anthropic>=0.40"]
+
+[project.scripts]
+autoslide = "autoslide.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["autoslide"]

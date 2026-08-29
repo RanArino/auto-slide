@@ -1,0 +1,21 @@
+# auto-slide 既定設定。CLI の --config で差し替え可能。
+
+seconds_per_slide   = 4.0
+transition_seconds  = 0.75
+title_card_seconds  = 2.5
+aspect              = "16:9"      # 16:9 / 1:1 / 9:16
+fps                 = 30
+
+time_gap_minutes    = 30          # これ以上時間が空いたらグループを分割
+geo_radius_meters   = 150         # 同一グループとみなす撮影地点の半径
+phash_hamming_max   = 6           # これ以下のハミング距離は近重複とみなす
+
+ken_burns           = false       # 各スライドに寄り/引きのゆっくりズーム
+burn_captions       = false       # LLM が付けたキャプションを画面に焼き込む
+
+audio_fade_in       = 1.0
+audio_fade_out      = 2.0
+audio_lufs          = -14.0
+
+llm_model           = "claude-sonnet-5"
+seed                = 42
