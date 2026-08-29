@@ -8,6 +8,8 @@
 
 from __future__ import annotations
 
+import math
+
 import numpy as np
 from PIL import Image
 
@@ -80,7 +82,64 @@ def embedding(img: Image.Image) -> np.ndarray:
     return vec / n if n > 1e-6 else vec
 
 
-def compute_features(thumb_path: str) -> tuple[int, float, np.ndarray]:
+_PHI = (0.382, 0.618)
+
+
+def composition(img: Image.Image) -> float:
+    """黄金比／三分割の目安スコア(0〜1、決定的)。
+
+    これは**幾何ヒューリスティック**であって美的モデルではない。
+    勾配強度を顕著性の代理として、その重心が黄金分割の交点付近にあるか、
+    中心に寄りすぎていないか、φ ライン(地平線など)に整列しているか、
+    被写体が画面端で見切れていないかを見る。
+    """
+    n = 160
+    g = np.asarray(img.convert("L").resize((n, n), Image.LANCZOS), dtype=np.float32)
+    gy, gx = np.gradient(g)
+    sal = np.hypot(gx, gy)
+    total = float(sal.sum())
+    if total < 1e-6:
+        return 0.0
+    s = sal / total
+
+    ax = (np.arange(n, dtype=np.float32) + 0.5) / n     # 0〜1
+    cx = float((s.sum(axis=0) * ax).sum())
+    cy = float((s.sum(axis=1) * ax).sum())
+
+    # 顕著性重心がパワーポイント(4 交点)にどれだけ近いか
+    d_gp = min(math.hypot(cx - fx, cy - fy) for fx in _PHI for fy in _PHI)
+    point_term = math.exp(-((d_gp / 0.16) ** 2))       # 1 = 交点上
+
+    # 中心から適度に外す(中央寄り／端寄りの両方を減点)
+    d_c = math.hypot(cx - 0.5, cy - 0.5)
+    center_term = min(1.0, d_c / 0.18) * (1.0 - min(1.0, max(0.0, (d_c - 0.40) / 0.12)))
+
+    # φ ライン帯への整列(水平線など)
+    band = 0.06
+    col_mass = s.sum(axis=0)
+    row_mass = s.sum(axis=1)
+    line_term = 0.0
+    for f in _PHI:
+        line_term += float(col_mass[np.abs(ax - f) < band].sum())
+        line_term += float(row_mass[np.abs(ax - f) < band].sum())
+    line_term = min(1.0, line_term / 1.2)
+
+    # 外周 5% に顕著性が寄っている＝見切れ、を減点
+    m = max(1, int(0.05 * n))
+    border = float(s[:m].sum() + s[-m:].sum() + s[:, :m].sum() + s[:, -m:].sum())
+    edge_term = 1.0 - min(1.0, border * 1.5)
+
+    score = 0.40 * point_term + 0.22 * center_term + 0.23 * line_term + 0.15 * edge_term
+    return float(np.clip(score, 0.0, 1.0))
+
+
+def compute_features(
+    thumb_path: str,
+) -> tuple[int, float, np.ndarray, tuple[float, float, float, float], float]:
+    """(phash, sharpness, embedding, (mean_r,g,b, sat), composition) を返す。"""
+    from .color import measure
+
     with Image.open(thumb_path) as img:
         img.load()
-        return phash(img), sharpness(img), embedding(img)
+        return (phash(img), sharpness(img), embedding(img),
+                measure(img).as_tuple(), composition(img))

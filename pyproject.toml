@@ -23,3 +23,5 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["autoslide"]
+# assets/(fonts, music, music_index.json) はリポジトリ相対で参照する。
+# 配布用ホイールに含めたい場合は force-include で assets/ を同梱すること。

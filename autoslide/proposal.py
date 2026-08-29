@@ -7,6 +7,7 @@ API キーが無い / 失敗したときは決定的なフォールバック案�
 from __future__ import annotations
 
 import base64
+import hashlib
 import json
 import logging
 import os
@@ -30,13 +31,17 @@ _PROMPT = """あなたはフォトムービーの編集者です。渡された�
   "title": "日本語の短いタイトル(30文字以内)",
   "mood": "calm|nostalgic|upbeat|dramatic|melancholic|joyful のいずれか1語",
   "mood_note": "感情の補足(20文字以内)",
+  "overall_tone": "動画全体のトーンを一文で(30文字以内)",
   "music_style": "曲調の指定(例: ゆったりしたピアノ)",
+  "color_note": "色味の印象や補正の要否について一言(任意, 30文字以内)",
   "group_labels": {"0": "このグループの短い見出し", "1": "..."},
+  "divider_texts": {"0": "章の区切りに出す短い言葉(12文字以内)", "1": "..."},
   "captions": {"1": "写真1の短い説明(15文字以内)", "2": "..."},
   "hashtags": ["#タグ", "#タグ"]
 }
 
-写真の枚数や順番は変えないでください。captions のキーは写真番号(1始まり)です。"""
+写真の枚数や順番は変えないでください。captions のキーは写真番号(1始まり)です。
+group_labels / divider_texts のキーはグループ番号です。"""
 
 _MOODS = {"calm", "nostalgic", "upbeat", "dramatic", "melancholic", "joyful"}
 
@@ -81,15 +86,22 @@ def _fallback(selection: Selection, source: Path) -> Proposal:
     dr = _date_range(selection.groups)
     title = f"{name}" + (f"（{dr}）" if dr else "")
     labels = {}
+    dividers = {}
     for g in selection.groups:
         loc = "屋外" if g.centroid_lat is not None else "シーン"
-        labels[g.group_id] = f"{loc} {g.group_id + 1}"
+        base = (g.label or f"{loc} {g.group_id + 1}").strip()
+        labels[g.group_id] = base
+        dividers[g.group_id] = base            # 区切りテキストは必ず埋める(空にしない)
     return Proposal(
         title=title[:30],
         mood="calm",
+        overall_tone="おだやかな振り返り",
         music_style="ゆったりしたピアノ",
+        color_note="",
         group_labels=labels,
+        divider_texts=dividers,
         captions={},
+        caption_subs={},
         hashtags=["#スライドショー", "#写真"],
         raw={"fallback": True},
     )
@@ -137,9 +149,17 @@ def _coerce(raw: dict, selection: Selection, source: Path) -> Proposal:
     if mood not in _MOODS:
         mood = fb.mood
     labels = {}
+    dividers = {}
+    raw_labels = raw.get("group_labels") or {}
+    raw_dividers = raw.get("divider_texts") or {}
     for g in selection.groups:
-        v = (raw.get("group_labels") or {}).get(str(g.group_id))
+        v = raw_labels.get(str(g.group_id))
         labels[g.group_id] = str(v).strip() if v else fb.group_labels.get(g.group_id, "")
+        dv = raw_dividers.get(str(g.group_id))
+        dividers[g.group_id] = (
+            str(dv).strip() if dv
+            else labels[g.group_id] or fb.divider_texts.get(g.group_id, f"シーン {g.group_id + 1}")
+        )
     raw_caps = raw.get("captions") or {}
     captions = {}
     for i, path in enumerate(selection.order, start=1):
@@ -152,36 +172,52 @@ def _coerce(raw: dict, selection: Selection, source: Path) -> Proposal:
     return Proposal(
         title=(str(raw.get("title", "")).strip() or fb.title)[:40],
         mood=mood + (f" / {note}" if note else ""),
+        overall_tone=str(raw.get("overall_tone", "")).strip() or fb.overall_tone,
+        color_note=str(raw.get("color_note", "")).strip(),
         music_style=str(raw.get("music_style", "")).strip() or fb.music_style,
         group_labels=labels,
+        divider_texts=dividers,
         captions=captions,
+        caption_subs={},
         hashtags=tags,
         raw=raw,
     )
 
 
+def _selection_hash(order: list[str]) -> str:
+    return hashlib.sha1("\n".join(order).encode("utf-8")).hexdigest()[:16]
+
+
 def propose(selection: Selection, images: dict[str, ImageMeta], source: str | Path,
             cfg: Config, out_dir: Path, use_llm: bool = True,
-            proposal_path: str | Path | None = None) -> tuple[Proposal, Path]:
-    """タイトル・感情・キャプションを決める。
+            proposal_path: str | Path | None = None,
+            refresh: bool = False) -> tuple[Proposal, Path]:
+    """タイトル・感情・キャプション・区切りテキストを決める。
 
     優先順位:
       1. proposal_path が指定されていればその JSON を使う(Claude Code が書いたもの)
-      2. use_llm かつ ANTHROPIC_API_KEY があれば Claude API に問い合わせる
-      3. どちらも無ければ決定的なフォールバック(フォルダ名＋日付、mood=calm)
+      2. 選択集合が同じ Vision 結果キャッシュがあれば再利用(refresh で無効化)
+      3. use_llm かつ ANTHROPIC_API_KEY があれば Claude API に問い合わせ、結果をキャッシュ
+      4. どれも無ければ決定的なフォールバック(フォルダ名＋日付、mood=calm)
     """
     source = Path(source)
     sheet = build_contact_sheet(selection.order, images, out_dir / "contact_sheet.jpg")
 
     raw = None
     origin = "fallback"
+    cache_file = out_dir / ".proposal_cache" / f"{_selection_hash(selection.order)}.json"
     if proposal_path:
         raw = json.loads(Path(proposal_path).read_text(encoding="utf-8"))
         origin = "file"
+    elif use_llm and cache_file.exists() and not refresh:
+        raw = json.loads(cache_file.read_text(encoding="utf-8"))
+        origin = "cache"
     elif use_llm:
         raw = _call_llm(sheet, cfg.llm_model)
         if raw:
             origin = "api"
+            cache_file.parent.mkdir(parents=True, exist_ok=True)
+            cache_file.write_text(json.dumps(raw, ensure_ascii=False, indent=2), encoding="utf-8")
 
     proposal = _coerce(raw, selection, source) if raw else _fallback(selection, source)
     log.info("proposal: title=%r mood=%r (%s)", proposal.title, proposal.mood, origin)

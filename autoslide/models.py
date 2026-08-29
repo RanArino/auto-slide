@@ -22,6 +22,11 @@ class ImageMeta:
     phash: int | None = None
     sharpness: float = 0.0
     embedding: np.ndarray | None = None
+    mean_r: float | None = None
+    mean_g: float | None = None
+    mean_b: float | None = None
+    mean_sat: float | None = None
+    composition: float | None = None
 
     @property
     def has_gps(self) -> bool:
@@ -57,6 +62,7 @@ class Candidate:
     group_id: int
     group_kind: str
     group_centroid: tuple[float | None, float | None] = (None, None)
+    group_label: str = ""
 
 
 @dataclass
@@ -66,6 +72,7 @@ class CandidatePool:
     candidates: list[Candidate]              # group 順 → 時刻順、idx は 1 始まり連番
     group_sizes: dict[int, int] = field(default_factory=dict)
     group_kinds: dict[int, str] = field(default_factory=dict)
+    group_labels: dict[int, str] = field(default_factory=dict)
     group_centroids: dict[int, tuple[float | None, float | None]] = field(default_factory=dict)
 
 
@@ -81,7 +88,29 @@ class Proposal:
     title: str
     mood: str
     music_style: str = ""
+    overall_tone: str = ""
+    color_note: str = ""
     group_labels: dict[int, str] = field(default_factory=dict)
+    divider_texts: dict[int, str] = field(default_factory=dict)
     captions: dict[str, str] = field(default_factory=dict)
+    caption_subs: dict[str, str] = field(default_factory=dict)   # 写真パス -> 日付など副題
     hashtags: list[str] = field(default_factory=list)
     raw: dict | None = None
+
+
+@dataclass
+class Segment:
+    """タイムライン上の 1 区間。焼き込み PNG と SRT はどちらもここから作る。"""
+
+    kind: str                       # "title" / "divider" / "photo"
+    start: float
+    end: float
+    text: str = ""                  # title/divider の表示文字、photo のキャプション主文
+    subtext: str = ""               # photo キャプションの副題(日付など。SRT には入れない)
+    image_path: str | None = None
+    group_id: int | None = None
+    index: int = 0                  # photo の 1 始まり通し番号
+
+    @property
+    def duration(self) -> float:
+        return self.end - self.start

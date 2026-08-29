@@ -5,85 +5,103 @@ description: 写真フォルダからスライドショー動画(mp4)を作る�
 
 # auto-slide
 
-写真フォルダ → mp4。**候補の絞り込みはCLIのアルゴリズム**(重複除去・ブレ落とし・場所/類似の分散)、
+写真フォルダ → mp4 + srt。**候補の絞り込みはCLIのアルゴリズム**(重複除去・ブレ落とし・場所/類似の分散)、
 **最終選択はあなた(Claude)が実際に画像を見て**行う。
+**構成案は人間可読な要約として提示し、自然言語フィードバックで直し、承認を得てから最終生成する。**
+無言で最終 MP4 まで進めない(未承認の plan.json は `render` が拒否する)。
 
 ## 前提
 
 - カレントディレクトリが auto-slide リポジトリで、`autoslide` が使える(無ければ `uv pip install -e .`)。
 - `ffmpeg` が必要(`brew install ffmpeg`)。
-- **API キーは不要**。写真の選択もタイトル/感情/キャプションも、このセッション(Claude Code)自身が行う。
+- **API キーは不要**。写真の選択もタイトル/感情/キャプションも、このセッション自身が行う。
 
 ## 手順
 
-### 1. 候補を出す
-
-ユーザーにフォルダのパスと枚数 N(既定 8)、アスペクト(既定 16:9)を確認する。
+### 0. 環境チェック
 
 ```
-autoslide candidates "<folder>" --count <N> --out out/<name> --aspect <16:9|1:1|9:16>
+autoslide doctor
+```
+
+FAIL があれば原因(ffmpeg フィルタ不足 / CJK フォント無し / Pillow 機能不足)を伝えて中断する。
+文字が焼けない環境で無理に生成しない。
+
+### 1. 候補を出す
+
+ユーザーにフォルダのパスと枚数 N(既定 8)、アスペクト(既定 16:9)、
+写真の見せ方(`--fit auto` = 既定・向きが逆の写真だけぼかし背景 / `cover` = 全部いっぱいにクロップ / `contain-blur` = 全部収めてぼかし背景)、
+グルーピング(`--grouping folder` = フォルダ整理を尊重 / `exif` = 時刻・GPS / `auto`)を確認する。
+
+```
+autoslide candidates "<folder>" --count <N> --out out/<name> --aspect <16:9|1:1|9:16> [--fit ...] [--grouping ...]
 ```
 
 `out/<name>/candidates.json` と `out/<name>/candidates_00.jpg`(以降ページ)ができる。
 候補が少なすぎる/多すぎるときは `--pool-factor 3.5` などで調整して再実行。
 
-### 2. 写真を見て選ぶ ← ここがこのスキルの主目的
+### 2. 写真を見て選ぶ ← このスキルの主目的
 
 1. `out/<name>/candidates_*.jpg` を **Read で表示**して全体を把握する。番号(#1, #2 …)は candidates.json と一致。
-2. 判断が微妙な番号は `candidates.json` の `pool[].thumb` のパスを **個別に Read** して細部(ピント・表情・傾き)を確認。
-3. `candidates.json` の `groups`(= 撮影シーン/場所のまとまり)を見て、次を満たすよう **ちょうど N 枚**選ぶ:
+2. 微妙な番号は `candidates.json` の `pool[].thumb` を **個別に Read** して細部(ピント・表情・傾き)を確認。
+3. `candidates.json` の `groups`(撮影シーン/場所のまとまり)を見て、**ちょうど N 枚**選ぶ:
    - 各 group から最低 1 枚。場所・構図が偏らないように。
-   - **除外**: 明確なブレ、大きな露出破綻(白飛び/黒潰れ)、ほぼ同一構図の重複、水平が大きく傾いて見づらいもの。
-   - **採用**: ピントが合って主題が明快、group 内の他と画が違う、光や表情が良いもの。
+   - **除外**: 明確なブレ、大きな露出破綻、ほぼ同一構図の重複、水平が大きく傾いたもの。
+   - **採用**: ピントが合い主題が明快、group 内の他と画が違う、光や表情が良いもの。
+   - コンタクトシートの `comp`(黄金比・三分割の目安、0〜1)が高いものを優先的に検討。
+     ただし最終判断は実際の画を見て(スコアは幾何ヒューリスティック)。
    - ユーザーに感情/雰囲気の希望があれば聞き、それに合う画を優先する。
-4. 選んだ番号と、各 group の内訳・主な除外理由を一度ユーザーに提示してよい(任意)。
 
-### 3. 選んだら selection にする
-
-```
-autoslide pick out/<name> --set <選んだ番号をカンマ区切り>
-```
-
-`out/<name>/selection.json`(`order` に最終的な並び順のパス)ができる。
-
-### 4. タイトル・感情・キャプションを書く ← ここも Claude 自身が行う
-
-`out/<name>/proposal.template.json` を開き、写真を見た印象と `selection.json` の `order` をもとに埋めて
-`out/<name>/proposal.json` として保存する。スキーマ:
-
-```json
-{
-  "title": "日本語の短いタイトル(30字以内)",
-  "mood": "calm|nostalgic|melancholic|joyful|upbeat|dramatic のいずれか1語",
-  "mood_note": "感情の補足(任意, 20字以内)",
-  "music_style": "曲調の希望(例: ゆったりしたピアノ)",
-  "group_labels": {"0": "シーンの見出し", "1": "..."},
-  "captions": {"IMG_0007.jpg": "写真ごとの短い一言(任意)"},
-  "hashtags": ["#タグ"]
-}
-```
-
-- `captions` のキーはファイル名(basename)でも、`order` での 1 始まりの番号でもよい。付けたい写真だけでよい。
-- `mood` は BGM 選定にも使われる。
-
-### 5. 動画化
+### 3. 構成案を作って提示する
 
 ```
-autoslide plan   "<folder>" --out out/<name> --selection out/<name>/selection.json --proposal out/<name>/proposal.json
-autoslide render out/<name>/plan.json --out out/<name>/out.mp4
+autoslide pick  out/<name> --set <選んだ番号をカンマ区切り>
+autoslide plan  "<folder>" --out out/<name> --selection out/<name>/selection.json
 ```
 
-- `--proposal` を渡すと API は一切呼ばない。省くとフォールバック(フォルダ名＋日付、mood=calm)。
-- `out/<name>/plan.json` は編集可。`title` / `captions` / `order` を直して `render` し直せる。
-- BGM を付けるには `assets/music_index.json` に音源を登録(README 参照)。未登録なら無音。
+`plan` は `plan.json`(**未承認: `approved:false`**)と、章立て・キャプション・BGM・
+色補正方針の入った案を作り、**人間可読な要約を出力する**(内部で `autoslide summary` を実行)。
 
-### 6. 報告
+1. その要約を**チャットにそのまま提示**する。
+2. 露出→色の before/after があれば `out/<name>/tone_preview/*.jpg` を **Read で見せる**。
+3. ユーザーの自然言語フィードバックを反映する:
+   - 「7章目を削って」「順番を変えて」→ `plan.json` の `chapters` / `order` を Edit
+   - 「もっと明るいトーンで」「タイトルを変えて」→ `plan.json` の `title` / `overall_tone` / `mood` を Edit、
+     または `--grouping` 等を変えて `autoslide plan` を再実行
+   - 「BGM をもっと静かに」→ `plan.json` の `music` を差し替え、または `autoslide plan --music <file>`
+   - 「色補正を強く/かけない」→ `plan.json` の `color.strength`(0〜1)を Edit
+   - 「露出補正を強く/かけない」→ `plan.json` の `exposure.strength`(0〜1)を Edit
+   - 「この写真は補正しない」→ `plan.json` の `color.per_image["<path>"].disabled` /
+     `exposure.per_image["<path>"].disabled` を `true` に
+   - キャプションを付ける/直す → `plan.json` の `captions` を Edit(焼き込みと SRT の両方に反映)。
+     日付の副題は `caption_sub`(EXIF 由来、`""` で消せる)
+   - 「シネマの黒帯をやめる」→ `plan.json` の `config.letterbox` を `false`、
+     「中央バー字幕にする」→ `config.caption_style` を `"bar"`
+4. 直したら再度 `autoslide summary out/<name>/plan.json` を実行して**更新後の要約を提示**する。
+5. これを納得いくまで繰り返す。**勝手に承認・生成しない。**
 
-生成した mp4 のパス、選んだ枚数と各 group の内訳、タイトル、除外した主な理由を簡潔に伝える。
+### 4. 承認 → 動画化
+
+ユーザーが明示的に OK と言ってから:
+
+```
+autoslide approve out/<name>/plan.json
+autoslide render  out/<name>/plan.json --out out/<name>/out.mp4
+```
+
+- `out/<name>/out.mp4` と `out/<name>/out.srt`(焼き込みキャプションと同じ文言・タイミング)ができる。
+- 既定 `--fit auto` では、キャンバスと向きが逆の写真(横動画の縦写真等)だけ contain-blur、
+  他は cover。`cover` / `contain-blur` を明示すると全カットその方式に統一される。
+
+### 5. 報告
+
+生成した mp4 / srt のパス、選んだ枚数と各章の内訳、タイトル、除外した主な理由、
+色補正をかけた枚数を簡潔に伝える。
 
 ## メモ
 
-- API キーは使わない。写真の判断・タイトル・感情はすべてこのセッションが行う。
 - 候補プールに無い写真は選べない。もっと欲しいときは `--count` を増やすか `--pool-factor` を上げて `candidates` から。
-- `pick --set` の枚数が `--count` と違うと警告は出るが続行はする。
-- 完全自動(Claude が写真を見ない)でよいなら `autoslide run "<folder>" --count N` 一発（この場合だけ、タイトル自動生成に API キーがあれば使う）。
+- `plan.json` を編集しても `approved` は自動では戻らない。内容を大きく変えたら
+  再度 `autoslide summary` で確認し、ユーザーの再承認を得てから `render` する。
+- `autoslide run "<folder>" --count N` は既定では `plan` + 要約提示で**停止**する。
+  ユーザーが明示的に一括生成を望むときだけ `--yes` を付ける。

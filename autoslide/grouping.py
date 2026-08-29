@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import logging
 import math
+from pathlib import Path
 
 from .config import Config
 from .models import Group, ImageMeta
@@ -86,7 +87,34 @@ def _nearest_in_time(im: ImageMeta, clusters: list[list[ImageMeta]]) -> list[Ima
     return best
 
 
-def group_images(images: list[ImageMeta], cfg: Config) -> list[Group]:
+def _centroid(images: list[ImageMeta]) -> tuple[float | None, float | None]:
+    pts = [(im.lat, im.lon) for im in images if im.has_gps]
+    if not pts:
+        return None, None
+    return sum(p[0] for p in pts) / len(pts), sum(p[1] for p in pts) / len(pts)
+
+
+def _group_by_folder(images: list[ImageMeta]) -> list[Group]:
+    """既存のフォルダ整理を尊重: リーフフォルダ 1 つ = 1 グループ。
+
+    フォルダ名昇順、グループ内は撮影時刻→ファイル名。EXIF 日時が信用できない
+    振り返り/スキャン写真でも、フォルダの並びで通し順にできる。
+    """
+    by_folder: dict[str, list[ImageMeta]] = {}
+    for im in images:
+        by_folder.setdefault(im.folder, []).append(im)
+
+    groups: list[Group] = []
+    for gid, folder in enumerate(sorted(by_folder)):
+        imgs = sorted(by_folder[folder], key=_sort_key)
+        clat, clon = _centroid(imgs)
+        groups.append(Group(group_id=gid, kind="folder", images=imgs,
+                            label=Path(folder).name, centroid_lat=clat, centroid_lon=clon))
+    log.info("grouping(folder) 完了: %d グループ", len(groups))
+    return groups
+
+
+def _group_by_exif(images: list[ImageMeta], cfg: Config) -> list[Group]:
     groups: list[Group] = []
     gid = 0
     for segment in _split_by_time(images, cfg.time_gap_minutes):
@@ -112,5 +140,20 @@ def group_images(images: list[ImageMeta], cfg: Config) -> list[Group]:
     groups.sort(key=lambda g: (g.t_start.timestamp() if g.t_start else float("inf"), g.group_id))
     for i, g in enumerate(groups):
         g.group_id = i
-    log.info("grouping 完了: %d グループ", len(groups))
+    log.info("grouping(exif) 完了: %d グループ", len(groups))
     return groups
+
+
+def group_images(images: list[ImageMeta], cfg: Config) -> list[Group]:
+    """cfg.grouping_mode で分岐。
+
+    - "folder": リーフフォルダ 1 つ = 1 グループ
+    - "exif"  : 撮影時刻ギャップ + GPS 近接で分割
+    - "auto"  : 写真が 2 フォルダ以上にまたがるなら folder、そうでなければ exif
+    """
+    mode = cfg.grouping_mode
+    if mode == "auto":
+        n_folders = len({im.folder for im in images})
+        mode = "folder" if n_folders >= 2 else "exif"
+        log.info("grouping mode=auto -> %s (%d フォルダ)", mode, n_folders)
+    return _group_by_folder(images) if mode == "folder" else _group_by_exif(images, cfg)

@@ -3,4 +3,5 @@ __pycache__/
 *.pyc
 .autoslide_cache/
 /out/
+/photos/
 .env

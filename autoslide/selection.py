@@ -147,7 +147,7 @@ def shortlist(groups: list[Group], count: int, cfg: Config,
         for im in picked:
             idx += 1
             cands.append(Candidate(idx, im, g.group_id, g.kind,
-                                   (g.centroid_lat, g.centroid_lon)))
+                                   (g.centroid_lat, g.centroid_lon), g.label))
 
     return CandidatePool(
         source=source,
@@ -155,6 +155,7 @@ def shortlist(groups: list[Group], count: int, cfg: Config,
         candidates=cands,
         group_sizes={g.group_id: len(g.images) for g in deduped},
         group_kinds={g.group_id: g.kind for g in deduped},
+        group_labels={g.group_id: g.label for g in deduped},
         group_centroids={g.group_id: (g.centroid_lat, g.centroid_lon) for g in deduped},
     )
 
@@ -179,7 +180,7 @@ def finalize(pool: CandidatePool, chosen: list[int] | list[str], cfg: Config) ->
         ims = sorted((c.meta for c in cs),
                      key=lambda im: (im.taken_at.timestamp() if im.taken_at else 0.0, im.path))
         cen = cs[0].group_centroid
-        out_groups.append(Group(gid, cs[0].group_kind, ims, "", cen[0], cen[1]))
+        out_groups.append(Group(gid, cs[0].group_kind, ims, cs[0].group_label, cen[0], cen[1]))
         for c in cs:
             reasons[c.meta.path] = f"group {gid} ({c.group_kind})"
 

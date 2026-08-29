@@ -27,6 +27,10 @@ def _add_common(p: argparse.ArgumentParser) -> None:
                    help="config.toml のパス")
     p.add_argument("--aspect", choices=["16:9", "1:1", "9:16"], help="出力アスペクト比")
     p.add_argument("--seconds", type=float, help="1 枚あたりの表示秒数 (既定 4)")
+    p.add_argument("--grouping", choices=["folder", "exif", "auto"],
+                   help="グルーピング方針 (既定 auto)")
+    p.add_argument("--fit", choices=["cover", "contain-blur", "auto"],
+                   help="写真の正規化方法 (既定 auto=向きが逆の写真だけ contain-blur)")
     p.add_argument("-v", "--verbose", action="store_true")
 
 
@@ -36,7 +40,12 @@ def _load_cfg(args) -> Config:
         cfg.aspect = args.aspect
     if getattr(args, "seconds", None):
         cfg.seconds_per_slide = args.seconds
-    cfg.resolution  # 早期バリデーション
+    if getattr(args, "grouping", None):
+        cfg.grouping_mode = args.grouping
+    if getattr(args, "fit", None):
+        cfg.fit_mode = args.fit
+    cfg.__post_init__()  # 上書き後の再バリデーション
+    cfg.resolution
     return cfg
 
 
@@ -72,22 +81,40 @@ def build_parser() -> argparse.ArgumentParser:
                     help="タイトル/感情/キャプションの JSON（Claude Code が記入）。API を使わない")
     pp.add_argument("--no-llm", action="store_true",
                     help="API を呼ばずフォールバック案にする（--proposal 指定時は不要）")
+    pp.add_argument("--refresh-proposal", action="store_true",
+                    help="Vision 結果キャッシュを無視して問い合わせ直す")
     pp.add_argument("--music", default=None, help="BGM を明示指定する音声ファイル")
     _add_common(pp)
 
-    rp = sub.add_parser("render", help="plan.json から mp4 を生成")
+    smp = sub.add_parser("summary", help="plan.json の人間可読な要約を表示")
+    smp.add_argument("plan")
+    smp.add_argument("-v", "--verbose", action="store_true")
+
+    apr = sub.add_parser("approve", help="plan.json を承認する（render の前提）")
+    apr.add_argument("plan")
+    apr.add_argument("--undo", action="store_true", help="承認を取り消す")
+    apr.add_argument("-v", "--verbose", action="store_true")
+
+    dp = sub.add_parser("doctor", help="実行環境をチェック（ffmpeg フィルタ / フォント / HEIC）")
+    dp.add_argument("-v", "--verbose", action="store_true")
+
+    rp = sub.add_parser("render", help="承認済み plan.json から mp4 + srt を生成")
     rp.add_argument("plan")
     rp.add_argument("--out", default=None, help="出力 mp4 パス (既定 <plan と同じ場所>/out.mp4)")
     rp.add_argument("--keep-workdir", action="store_true")
+    rp.add_argument("--force", action="store_true",
+                    help="未承認でも生成する。対話レビューを飛ばす（非推奨）")
     rp.add_argument("-v", "--verbose", action="store_true")
 
-    up = sub.add_parser("run", help="scan→plan→render を一括")
+    up = sub.add_parser("run", help="scan→plan を一括。既定は要約提示で停止（render しない）")
     up.add_argument("path")
     up.add_argument("--count", type=int, required=True)
     up.add_argument("--out", default=None)
     up.add_argument("--no-llm", action="store_true")
     up.add_argument("--music", default=None)
     up.add_argument("--keep-workdir", action="store_true")
+    up.add_argument("--yes", action="store_true",
+                    help="要約を待たず承認して render まで通す（CI / 明示的な一括実行向け）")
     _add_common(up)
     return parser
 
@@ -134,11 +161,23 @@ def main(argv: list[str] | None = None) -> int:
             out_dir = Path(args.out) if args.out else _default_out_dir(args.path)
             plan = pipeline.do_plan(args.path, args.count, cfg, out_dir,
                                     use_llm=not args.no_llm, music_override=args.music,
-                                    selection_path=args.selection, proposal_path=args.proposal)
+                                    selection_path=args.selection, proposal_path=args.proposal,
+                                    refresh_proposal=args.refresh_proposal)
             print(plan)
+            print(pipeline.do_summary(plan))
+
+        elif args.cmd == "summary":
+            print(pipeline.do_summary(args.plan))
+
+        elif args.cmd == "approve":
+            print(pipeline.do_approve(args.plan, approved=not args.undo))
+
+        elif args.cmd == "doctor":
+            return pipeline.do_doctor()
 
         elif args.cmd == "render":
-            out = pipeline.do_render(args.plan, args.out, keep_workdir=args.keep_workdir)
+            out = pipeline.do_render(args.plan, args.out, keep_workdir=args.keep_workdir,
+                                     force=args.force)
             print(out)
 
         elif args.cmd == "run":
@@ -146,7 +185,7 @@ def main(argv: list[str] | None = None) -> int:
             out_dir = Path(args.out) if args.out else _default_out_dir(args.path)
             out = pipeline.do_run(args.path, args.count, cfg, out_dir,
                                   use_llm=not args.no_llm, music_override=args.music,
-                                  keep_workdir=args.keep_workdir)
+                                  keep_workdir=args.keep_workdir, approve=args.yes)
             print(out)
     except (RuntimeError, FileNotFoundError, ValueError) as e:
         logging.error("%s", e)

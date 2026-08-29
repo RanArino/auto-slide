@@ -22,9 +22,19 @@ CREATE TABLE IF NOT EXISTS images (
     phash      TEXT,           -- 64bit を 16 桁 hex 文字列で保持(SQLite INTEGER の符号問題回避)
     sharpness  REAL,
     embedding  BLOB,          -- float32
+    mean_r     REAL,           -- グレーワールド補正用の色計測(0〜1)
+    mean_g     REAL,
+    mean_b     REAL,
+    mean_sat   REAL,
+    composition REAL,          -- 黄金比/三分割の構図スコア(0〜1)
     indexed_at TEXT DEFAULT (datetime('now'))
 );
 """
+
+_EXTRA_COLUMNS = {
+    "mean_r": "REAL", "mean_g": "REAL", "mean_b": "REAL", "mean_sat": "REAL",
+    "composition": "REAL",
+}
 
 
 class Cache:
@@ -34,7 +44,14 @@ class Cache:
         self.conn = sqlite3.connect(self.path)
         self.conn.row_factory = sqlite3.Row
         self.conn.executescript(SCHEMA)
+        self._migrate()
         self.conn.commit()
+
+    def _migrate(self) -> None:
+        have = {r["name"] for r in self.conn.execute("PRAGMA table_info(images)")}
+        for col, decl in _EXTRA_COLUMNS.items():
+            if col not in have:
+                self.conn.execute(f"ALTER TABLE images ADD COLUMN {col} {decl}")
 
     def get(self, path: str, mtime: float) -> dict | None:
         row = self.conn.execute(
@@ -59,6 +76,7 @@ class Cache:
         cols = [
             "path", "mtime", "folder", "taken_at", "lat", "lon", "camera",
             "width", "height", "thumb_path", "phash", "sharpness", "embedding",
+            "mean_r", "mean_g", "mean_b", "mean_sat", "composition",
         ]
         placeholders = ", ".join("?" for _ in cols)
         updates = ", ".join(f"{c}=excluded.{c}" for c in cols if c != "path")

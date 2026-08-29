@@ -53,6 +53,8 @@ def render_candidate_sheets(pool: CandidatePool, out_dir: Path) -> list[str]:
             d.text((x0 + 10, y0 + 12), f"#{c.idx}", fill=(245, 245, 250), font=num)
             tstr = c.meta.taken_at.strftime("%m/%d %H:%M") if c.meta.taken_at else "時刻不明"
             info = f"g{c.group_id} · {tstr} · sharp {c.meta.sharpness:.0f}"
+            if c.meta.composition is not None:
+                info += f" · comp {c.meta.composition:.2f}"
             if c.meta.lat is not None:
                 info += " · GPS"
             d.text((x0 + 62, y0 + 16), info, fill=(155, 155, 165), font=sub)
@@ -70,6 +72,7 @@ def write_candidates(pool: CandidatePool, out_dir: Path, aspect_hint: str = "16:
         cen = pool.group_centroids.get(gid, (None, None))
         groups[str(gid)] = {
             "kind": pool.group_kinds.get(gid, ""),
+            "label": pool.group_labels.get(gid, ""),
             "pool_size": sum(1 for c in pool.candidates if c.group_id == gid),
             "total_size": size,
             "centroid": [cen[0], cen[1]] if cen[0] is not None else None,
@@ -92,6 +95,7 @@ def write_candidates(pool: CandidatePool, out_dir: Path, aspect_hint: str = "16:
                 "lat": c.meta.lat,
                 "lon": c.meta.lon,
                 "sharpness": round(c.meta.sharpness, 1),
+                "composition": round(c.meta.composition, 3) if c.meta.composition is not None else None,
             }
             for c in pool.candidates
         ],
@@ -99,6 +103,7 @@ def write_candidates(pool: CandidatePool, out_dir: Path, aspect_hint: str = "16:
             f"各 group から最低1枚。場所・構図が偏らないよう、ちょうど {pool.count} 枚を選ぶ。"
             " 明確なブレ・大きな露出破綻・ほぼ同一構図・大きな傾きは除外。"
             " 採用は ピントが合い主題が明快でグループ内の他と違う画。"
+            " comp は黄金比／三分割の目安(0〜1)。高いほど構図が整っている候補。"
         ),
     }
     path = out_dir / "candidates.json"
@@ -128,6 +133,7 @@ def pool_from_candidates_json(data: dict) -> CandidatePool:
     for gid, g in (data.get("groups") or {}).items():
         c = g.get("centroid")
         cents[int(gid)] = (tuple(c) if c else (None, None))
+    glabels = {int(k): v.get("label", "") for k, v in (data.get("groups") or {}).items()}
     for e in data["pool"]:
         meta = ImageMeta(
             path=e["path"],
@@ -137,10 +143,11 @@ def pool_from_candidates_json(data: dict) -> CandidatePool:
             lon=e.get("lon"),
             thumb_path=e.get("thumb"),
             sharpness=e.get("sharpness") or 0.0,
+            composition=e.get("composition"),
         )
         gid = e["group_id"]
         cands.append(Candidate(e["idx"], meta, gid, e.get("group_kind", ""),
-                               cents.get(gid, (None, None))))
+                               cents.get(gid, (None, None)), glabels.get(gid, "")))
     return CandidatePool(
         source=data.get("source", ""),
         count=int(data.get("count", len(cands))),
@@ -148,6 +155,7 @@ def pool_from_candidates_json(data: dict) -> CandidatePool:
         group_sizes={int(k): v.get("total_size", v.get("pool_size", 0))
                      for k, v in (data.get("groups") or {}).items()},
         group_kinds={int(k): v.get("kind", "") for k, v in (data.get("groups") or {}).items()},
+        group_labels=glabels,
         group_centroids=cents,
     )
 
@@ -164,6 +172,7 @@ def write_selection(out_dir: Path, selection: Selection, picked_idx: list[int],
             {
                 "group_id": g.group_id,
                 "kind": g.kind,
+                "label": g.label,
                 "centroid": [g.centroid_lat, g.centroid_lon]
                 if g.centroid_lat is not None else None,
                 "images": [im.path for im in g.images],

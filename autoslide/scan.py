@@ -4,6 +4,9 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import shutil
+import subprocess
+import sys
 from datetime import datetime
 from pathlib import Path
 
@@ -16,14 +19,53 @@ from .models import ImageMeta
 log = logging.getLogger("autoslide.scan")
 
 IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".webp", ".tif", ".tiff", ".heic", ".heif"}
+HEIC_EXTS = {".heic", ".heif"}
 THUMB_LONG_EDGE = 512
 
+_HEIF_OK = False
 try:  # HEIC は任意
     import pillow_heif  # type: ignore
 
     pillow_heif.register_heif_opener()
+    _HEIF_OK = True
 except Exception:  # pragma: no cover
     pass
+
+
+def heic_support() -> str | None:
+    """HEIC を扱える手段の名前。無ければ None(doctor が警告する)。"""
+    if _HEIF_OK:
+        return "pillow-heif"
+    if sys.platform == "darwin" and shutil.which("sips"):
+        return "sips"
+    if shutil.which("heif-convert"):
+        return "heif-convert(libheif)"
+    return None
+
+
+def _heic_working_copy(src: Path, cache_dir: Path) -> Path | None:
+    """原本を書き換えず、別フォルダに JPEG の作業コピーを作る。"""
+    dst_dir = cache_dir / "heic_jpeg"
+    dst_dir.mkdir(parents=True, exist_ok=True)
+    h = hashlib.sha1(str(src.resolve()).encode()).hexdigest()[:16]
+    dst = dst_dir / f"{h}.jpg"
+    if dst.exists() and dst.stat().st_mtime >= src.stat().st_mtime:
+        return dst
+    if sys.platform == "darwin" and shutil.which("sips"):
+        r = subprocess.run(
+            ["sips", "-s", "format", "jpeg", str(src), "--out", str(dst)],
+            capture_output=True, text=True,
+        )
+        if r.returncode == 0 and dst.exists():
+            return dst
+        log.warning("sips 変換失敗 %s: %s", src, r.stderr.strip()[:200])
+    elif shutil.which("heif-convert"):
+        r = subprocess.run(["heif-convert", str(src), str(dst)],
+                           capture_output=True, text=True)
+        if r.returncode == 0 and dst.exists():
+            return dst
+        log.warning("heif-convert 失敗 %s: %s", src, r.stderr.strip()[:200])
+    return None
 
 _DT_TAGS = {
     ExifTags.Base.DateTimeOriginal.value: 1,
@@ -115,7 +157,7 @@ def scan(root: str | Path, cache: Cache, cache_dir: Path) -> list[ImageMeta]:
         raise FileNotFoundError(f"パスが存在しません: {root}")
 
     metas: list[ImageMeta] = []
-    n_cached = n_new = 0
+    n_cached = n_new = n_heic_skipped = 0
     for src in iter_image_files(root):
         mtime = src.stat().st_mtime
         cached = cache.get(str(src), mtime)
@@ -124,8 +166,17 @@ def scan(root: str | Path, cache: Cache, cache_dir: Path) -> list[ImageMeta]:
             metas.append(_meta_from_row(cached))
             continue
 
+        open_src = src
+        if src.suffix.lower() in HEIC_EXTS and not _HEIF_OK:
+            wc = _heic_working_copy(src, cache_dir)
+            if wc is None:
+                n_heic_skipped += 1
+                log.warning("HEIC を読めません(pillow-heif / sips / heif-convert 無し): %s", src)
+                continue
+            open_src = wc
+
         try:
-            with Image.open(src) as img:
+            with Image.open(open_src) as img:
                 img.load()
                 w, h = img.size
                 taken_at, lat, lon, camera = _read_exif(img)
@@ -135,7 +186,7 @@ def scan(root: str | Path, cache: Cache, cache_dir: Path) -> list[ImageMeta]:
             log.warning("読み込み失敗 %s: %s", src, e)
             continue
 
-        phash, sharpness, embedding = compute_features(thumb)
+        phash, sharpness, embedding, (mr, mg, mb, msat), comp = compute_features(thumb)
         meta = ImageMeta(
             path=str(src),
             folder=str(src.parent),
@@ -149,6 +200,11 @@ def scan(root: str | Path, cache: Cache, cache_dir: Path) -> list[ImageMeta]:
             phash=phash,
             sharpness=sharpness,
             embedding=embedding,
+            mean_r=mr,
+            mean_g=mg,
+            mean_b=mb,
+            mean_sat=msat,
+            composition=comp,
         )
         cache.upsert(
             dict(
@@ -165,6 +221,11 @@ def scan(root: str | Path, cache: Cache, cache_dir: Path) -> list[ImageMeta]:
                 phash=phash,
                 sharpness=sharpness,
                 embedding=embedding,
+                mean_r=mr,
+                mean_g=mg,
+                mean_b=mb,
+                mean_sat=msat,
+                composition=comp,
             )
         )
         metas.append(meta)
@@ -172,6 +233,9 @@ def scan(root: str | Path, cache: Cache, cache_dir: Path) -> list[ImageMeta]:
 
     cache.commit()
     log.info("scan 完了: %d 枚 (新規 %d / キャッシュ %d)", len(metas), n_new, n_cached)
+    if n_heic_skipped:
+        log.warning("HEIC を %d 枚スキップしました。'autoslide doctor' で対処法を確認してください",
+                    n_heic_skipped)
     return metas
 
 
@@ -195,4 +259,9 @@ def _meta_from_row(row: dict) -> ImageMeta:
         phash=row.get("phash"),
         sharpness=row.get("sharpness") or 0.0,
         embedding=row.get("embedding"),
+        mean_r=row.get("mean_r"),
+        mean_g=row.get("mean_g"),
+        mean_b=row.get("mean_b"),
+        mean_sat=row.get("mean_sat"),
+        composition=row.get("composition"),
     )

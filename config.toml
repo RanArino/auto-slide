@@ -10,8 +10,31 @@ time_gap_minutes    = 30          # これ以上時間が空いたらグルー�
 geo_radius_meters   = 150         # 同一グループとみなす撮影地点の半径
 phash_hamming_max   = 6           # これ以下のハミング距離は近重複とみなす
 
+grouping_mode       = "auto"      # folder(フォルダ整理を尊重) / exif(時刻・GPS) / auto
+
+fit_mode            = "auto"     # auto(向きが逆の写真だけ contain-blur) / cover(いっぱいにクロップ) / contain-blur(収めてぼかし背景)
+group_scale_tolerance = 0.15      # 同一グループ内で拡大率を中央値±この割合にそろえる
+
 ken_burns           = false       # 各スライドに寄り/引きのゆっくりズーム
-burn_captions       = false       # LLM が付けたキャプションを画面に焼き込む
+burn_captions       = true        # キャプションを画面に焼き込む(SRT は常に書き出す)
+
+caption_style        = "lower-left"  # lower-left(下帯左・主文+日付) / bar(下いっぱいの中央バー)
+caption_date_always  = false         # 本文が無くても日付だけ焼く
+letterbox            = true          # シネマスコープの黒帯
+letterbox_ratio      = 2.39
+
+chapter_dividers        = true    # 章ごとの区切りスライドを入れる
+chapter_divider_seconds = 2.0
+
+color_correct       = true        # グレーワールド白色補正
+color_strength      = 0.3         # 0〜1。既定は控えめ
+color_sat_floor     = 0.08        # 平均彩度がこれ未満の写真は補正しない
+color_auto_atten    = 0.25        # ゲイン偏差がこれを超えたら自動で弱める
+
+exposure_correct    = true        # 白とびのロールオフ / 黒つぶれのリフト
+exposure_strength   = 0.35        # 0〜1。既定は控えめ
+exposure_hi_thresh  = 0.02        # 白飛び画素率がこれを超えたらハイライトを引く
+exposure_lo_thresh  = 0.02        # 黒潰れ画素率がこれを超えたらシャドーを持ち上げる
 
 audio_fade_in       = 1.0
 audio_fade_out      = 2.0
