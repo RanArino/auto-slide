@@ -28,9 +28,10 @@ class Config:
     # グルーピング方針: "folder"(フォルダ整理を尊重) / "exif"(時刻・GPSで分割) / "auto"
     grouping_mode: str = "auto"
 
-    # 写真の正規化: "auto"(キャンバスと向きが逆の写真だけ contain-blur、他は cover) /
-    # "cover"(キャンバスいっぱいにクロップ) / "contain-blur"(収めてぼかし背景)
-    fit_mode: str = "auto"
+    # 写真の正規化: "contain-blur"(全カット原寸を収めてぼかし背景、既定) /
+    # "auto"(キャンバスと向きが逆の写真だけ contain-blur、他は cover) /
+    # "cover"(キャンバスいっぱいにクロップ)
+    fit_mode: str = "contain-blur"
     # 同一グループ内で cover 拡大率を中央値の ±この割合にそろえる
     group_scale_tolerance: float = 0.15
 
@@ -40,8 +41,8 @@ class Config:
     # キャプションの見た目: "lower-left"(下帯左・主文+日付) / "bar"(下いっぱいの中央バー)
     caption_style: str = "lower-left"
     caption_date_always: bool = False  # 本文が無くても日付だけ焼く
-    # シネマスコープの黒帯(レターボックス)
-    letterbox: bool = True
+    # シネマスコープの黒帯(レターボックス)。既定 false: 写真の上下を切らない
+    letterbox: bool = False
     letterbox_ratio: float = 2.39
 
     # 章ごとの区切りスライド

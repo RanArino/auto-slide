@@ -15,12 +15,12 @@ HDD の写真フォルダから、AI がスライドショー動画（mp4）を�
 - **候補の絞り込み**: pHash で連写を 1 枚に間引き → グループへ枚数配分（平方根重みで偏り抑制）→ グループ内は farthest-point sampling で見た目が散るように選ぶ。`--seed` 固定で決定的
 - **最終選択**: アルゴリズムのまま（`run`）か、候補プール（`candidates`）から **Claude が実際に写真を見て**選ぶ（`pick`）かを選べる
 - **提案 → 対話レビュー**: タイトル・全体トーン・章見出し・区切りテキスト・キャプション・BGM ムード・色補正方針を提案。`autoslide summary` が**人間可読な要約**を出し、自然言語で直して再要約 → **明示承認**を経てから最終生成（未承認の `plan.json` は `render` が拒否）
-- **写真の正規化**: 出力キャンバスは固定比率。`--fit auto`（既定: キャンバスと向きが逆の写真＝横動画の中の縦写真だけ `contain-blur`、他は `cover`）/ `cover`（全部いっぱいにクロップ）/ `contain-blur`（全部収めて同じ写真のぼかしを背景に）。同一グループ内は cover 拡大率を中央値付近にそろえる
+- **写真の正規化**: 出力キャンバスは固定比率。`--fit contain-blur`（既定: 全カット原寸を収めて同じ写真のぼかしを背景に。上下も左右も切らない）/ `auto`（キャンバスと向きが逆の写真＝横動画の中の縦写真だけ `contain-blur`、他は `cover`）/ `cover`（全部いっぱいにクロップ）。同一グループ内は cover 拡大率を中央値付近にそろえる
 - **構図スコア**: 黄金比／三分割の目安（0〜1、幾何ヒューリスティック）。分析段階で `candidates` のコンタクトシートと `summary` に `comp` として表示し、構図の良い写真に気付けるようにする（**選択ロジックは変えない、提示のみ**）
 - **露出補正**: 白とびのロールオフ + 黒つぶれのシャドーリフト。ブラック／ホワイトポイントを保護し、強すぎる補正は自動抑制。強度 `exposure_strength`（0〜1, 既定 0.35）。露出良好な写真はスキップ
 - **色補正**: グレーワールド白色補正。ゲインは 0.7〜1.4 にクランプ、低彩度はスキップ、強すぎる補正は自動抑制。強度 `color_strength`（0〜1, 既定 0.3）。露出→色の順で適用。提案時に `tone_preview/` に before/after、`plan.json` で個別に無効化可
 - **BGM**: `assets/music_index.json` から mood 一致 → energy 近さ → 長さで選曲。トリム＋フェード＋ラウドネス正規化。音源が無ければ無音
-- **レンダリング**: タイトルカード + 章ごとの区切りスライド + 1 枚 `seconds_per_slide` 秒（既定 4）+ クロスフェード。既定でシネマスコープの黒帯（`letterbox`, 2.39:1）。キャプションは下帯・左寄せの主文 + 小さな日付（`caption_style="lower-left"`、`"bar"` で従来の中央バー）。H.264 / yuv420p / +faststart の mp4 と、焼き込み主文と同一文言・同一タイミングの `out.srt`（日付副題は SRT に入れない）。文字は PIL で PNG に焼く（ffmpeg の drawtext に依存しない）。`--aspect` は `16:9` / `1:1` / `9:16`
+- **レンダリング**: タイトルカード + 章ごとの区切りスライド + 1 枚 `seconds_per_slide` 秒（既定 4）+ クロスフェード。シネマスコープの黒帯（`letterbox`, 2.39:1）は既定オフ（写真の上下を切らない。`true` で有効）。キャプションは下帯・左寄せの主文 + 小さな日付（`caption_style="lower-left"`、`"bar"` で従来の中央バー）。H.264 / yuv420p / +faststart の mp4 と、焼き込み主文と同一文言・同一タイミングの `out.srt`（日付副題は SRT に入れない）。文字は PIL で PNG に焼く（ffmpeg の drawtext に依存しない）。`--aspect` は `16:9` / `1:1` / `9:16`
 
 ## セットアップ
 
@@ -216,7 +216,7 @@ autoslide render  out/mymovie/plan.json --out out/mymovie/out.mp4
 | `--count N` | スライドに使う枚数（合計） |
 | `--aspect 16:9\|1:1\|9:16` | 出力比率 |
 | `--seconds 4` | 1 枚の表示秒数 |
-| `--fit auto\|cover\|contain-blur` | 写真の正規化方法（既定 auto=向きが逆の写真だけ contain-blur） |
+| `--fit contain-blur\|auto\|cover` | 写真の正規化方法（既定 contain-blur=全カット原寸+ぼかし背景） |
 | `--grouping folder\|exif\|auto` | 章分けの方針 |
 | `--proposal FILE` | （plan）タイトル/感情/キャプションの JSON を渡す。API を呼ばない |
 | `--selection FILE` | （plan）`pick` が作った selection.json を使い、アルゴリズム選択を飛ばす |
@@ -252,7 +252,7 @@ autoslide render  out/mymovie/plan.json --out out/mymovie/out.mp4
 
 `seconds_per_slide`, `transition_seconds`, `title_card_seconds`, `aspect`, `fps`,
 `time_gap_minutes` / `geo_radius_meters` / `phash_hamming_max`（グループ分割・近重複）,
-`grouping_mode`（folder/exif/auto）, `fit_mode`（auto/cover/contain-blur）, `group_scale_tolerance`,
+`grouping_mode`（folder/exif/auto）, `fit_mode`（contain-blur/auto/cover）, `group_scale_tolerance`,
 `chapter_dividers` / `chapter_divider_seconds`（章の区切りスライド）,
 `caption_style`（lower-left/bar）/ `caption_date_always` / `letterbox` / `letterbox_ratio`（シネマ字幕・黒帯）,
 `color_correct` / `color_strength` / `color_sat_floor` / `color_auto_atten`（色補正）,

@@ -12,7 +12,7 @@ phash_hamming_max   = 6           # これ以下のハミング距離は近重�
 
 grouping_mode       = "auto"      # folder(フォルダ整理を尊重) / exif(時刻・GPS) / auto
 
-fit_mode            = "auto"     # auto(向きが逆の写真だけ contain-blur) / cover(いっぱいにクロップ) / contain-blur(収めてぼかし背景)
+fit_mode            = "contain-blur"  # contain-blur(全カット原寸+ぼかし背景、既定) / auto(向きが逆の写真だけ contain-blur) / cover(いっぱいにクロップ)
 group_scale_tolerance = 0.15      # 同一グループ内で拡大率を中央値±この割合にそろえる
 
 ken_burns           = false       # 各スライドに寄り/引きのゆっくりズーム
@@ -20,7 +20,7 @@ burn_captions       = true        # キャプションを画面に焼き込む(S
 
 caption_style        = "lower-left"  # lower-left(下帯左・主文+日付) / bar(下いっぱいの中央バー)
 caption_date_always  = false         # 本文が無くても日付だけ焼く
-letterbox            = true          # シネマスコープの黒帯
+letterbox            = false         # シネマスコープの黒帯。既定 false: 写真の上下を切らない
 letterbox_ratio      = 2.39
 
 chapter_dividers        = true    # 章ごとの区切りスライドを入れる

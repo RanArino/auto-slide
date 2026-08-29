@@ -39,8 +39,10 @@ def _cfg(fit: str) -> Config:
     return Config(aspect="16:9", fit_mode=fit, letterbox=False)
 
 
-def test_auto_is_the_default_fit_mode():
-    assert Config().fit_mode == "auto"
+def test_contain_blur_is_the_default_fit_mode():
+    # 既定は全カット原寸を収める contain-blur。レターボックスの上下クロップも既定オフ。
+    assert Config().fit_mode == "contain-blur"
+    assert Config().letterbox is False
 
 
 def test_contain_blur_keeps_full_height_and_fills_sides():

@@ -30,7 +30,7 @@ FAIL があれば原因(ffmpeg フィルタ不足 / CJK フォント無し / Pil
 ### 1. 候補を出す
 
 ユーザーにフォルダのパスと枚数 N(既定 8)、アスペクト(既定 16:9)、
-写真の見せ方(`--fit auto` = 既定・向きが逆の写真だけぼかし背景 / `cover` = 全部いっぱいにクロップ / `contain-blur` = 全部収めてぼかし背景)、
+写真の見せ方(`--fit contain-blur` = 既定・全カット原寸を収めてぼかし背景 / `auto` = 向きが逆の写真だけぼかし背景 / `cover` = 全部いっぱいにクロップ)、
 グルーピング(`--grouping folder` = フォルダ整理を尊重 / `exif` = 時刻・GPS / `auto`)を確認する。
 
 ```
@@ -97,8 +97,9 @@ autoslide render  out/<name>/plan.json --out out/<name>/out.mp4
 ```
 
 - `out/<name>/out.mp4` と `out/<name>/out.srt`(焼き込みキャプションと同じ文言・タイミング)ができる。
-- 既定 `--fit auto` では、キャンバスと向きが逆の写真(横動画の縦写真等)だけ contain-blur、
-  他は cover。`cover` / `contain-blur` を明示すると全カットその方式に統一される。
+- 既定 `--fit contain-blur` では、全カット原寸を収めてぼかし背景で余白を埋める(上下も左右も切らない)。
+  レターボックス(`config.letterbox`)も既定 false。`auto` は向きが逆の写真だけ contain-blur・他は cover、
+  `cover` は全カットいっぱいにクロップ。
 
 ### 5. 報告
 

@@ -30,7 +30,7 @@ def _add_common(p: argparse.ArgumentParser) -> None:
     p.add_argument("--grouping", choices=["folder", "exif", "auto"],
                    help="グルーピング方針 (既定 auto)")
     p.add_argument("--fit", choices=["cover", "contain-blur", "auto"],
-                   help="写真の正規化方法 (既定 auto=向きが逆の写真だけ contain-blur)")
+                   help="写真の正規化方法 (既定 contain-blur=全カット原寸+ぼかし背景)")
     p.add_argument("-v", "--verbose", action="store_true")
 
 
